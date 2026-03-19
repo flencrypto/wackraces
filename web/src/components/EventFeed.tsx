@@ -27,7 +27,7 @@ function PostCard({ post }: { post: Post }) {
 }
 
 export default function EventFeed({ eventId }: EventFeedProps) {
-  const { data: posts, isLoading, error } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ['feed', eventId],
     queryFn: () => eventsApi.getFeed(eventId),
     refetchInterval: 30_000,
@@ -35,11 +35,11 @@ export default function EventFeed({ eventId }: EventFeedProps) {
 
   if (isLoading) return <div style={{ padding: '1rem', color: '#64748b' }}>Loading feed…</div>
   if (error) return <div style={{ padding: '1rem', color: '#ef4444' }}>Failed to load feed</div>
-  if (!posts || posts.length === 0) return <div style={{ padding: '1rem', color: '#64748b' }}>No posts yet</div>
+  if (!data || data.posts.length === 0) return <div style={{ padding: '1rem', color: '#64748b' }}>No posts yet</div>
 
   return (
     <div style={{ padding: '0.5rem' }}>
-      {posts.map(post => <PostCard key={post.id} post={post} />)}
+      {data.posts.map(post => <PostCard key={post.id} post={post} />)}
     </div>
   )
 }

@@ -28,9 +28,9 @@ export const api = {
 // Auth API
 export const authApi = {
   login: (email: string, password: string) =>
-    api.post<{ accessToken: string; refreshToken: string; user: { sub: string; email: string; role: string } }>('/auth/login', { email, password }),
+    api.post<{ accessToken: string; refreshToken: string; user: { id: string; email: string; role: string } }>('/auth/login', { email, password }),
   register: (email: string, password: string, role: string) =>
-    api.post<{ accessToken: string; refreshToken: string; user: { sub: string; email: string; role: string } }>('/auth/register', { email, password, role }),
+    api.post<{ accessToken: string; refreshToken: string; user: { id: string; email: string; role: string } }>('/auth/register', { email, password, role }),
 }
 
 // Events API
@@ -57,7 +57,14 @@ export interface Post {
   reactions?: Record<string, number>
 }
 
+export interface FeedResponse {
+  posts: Post[]
+  nextCursor: string | null
+  hasMore: boolean
+}
+
 export const eventsApi = {
   getCars: (eventId: string) => api.get<Car[]>(`/events/${eventId}/cars`),
-  getFeed: (eventId: string, page = 1) => api.get<Post[]>(`/events/${eventId}/feed?page=${page}`),
+  getFeed: (eventId: string, cursor?: string) =>
+    api.get<FeedResponse>(`/events/${eventId}/feed${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
 }

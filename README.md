@@ -7,16 +7,25 @@
 ```
 ├── api/            # REST API + WebSocket gateway (Node.js / TypeScript / Fastify)
 ├── processor/      # Location processor worker (Redis consumer)
+├── web/            # React + Vite PWA frontend
+├── nginx/          # Nginx reverse-proxy config
 ├── docker-compose.yml
 └── .env.example
 ```
 
-## Quick start (Docker)
+## Quick start (Docker — recommended)
 
 ```bash
 cp .env.example .env
-docker compose up
+# Edit .env — change JWT_SECRET, JWT_REFRESH_SECRET to strong random values
+docker compose up --build
 ```
+
+The app will be available at **http://localhost:80** (nginx reverse proxy).
+
+- Frontend: http://localhost:80/
+- API: http://localhost:80/v1/
+- Direct API (dev): http://localhost:3000/v1/
 
 ## API service (local dev)
 
@@ -27,6 +36,18 @@ npm run migrate   # run DB migrations
 npm run dev       # start dev server on :3000
 npm test          # run tests
 ```
+
+## Frontend (local dev)
+
+```bash
+cd web
+npm install
+npm run dev       # Vite dev server on :5173 (proxies /api → localhost:3000)
+npm run build     # Production build
+npm run typecheck # TypeScript check
+```
+
+Set `VITE_DEFAULT_EVENT_ID` in your `.env` (or shell) to the UUID of an event you've created via the API — the live map will then track cars in that event.
 
 ## Processor (local dev)
 

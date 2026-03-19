@@ -10,6 +10,7 @@ const baseInput: SanitizeInput = {
     blurM: 400,
   },
   carId: 'test-car-1',
+  jitterSalt: 'test-salt',
 };
 
 describe('sanitizeLocation', () => {
@@ -58,7 +59,6 @@ describe('sanitizeLocation', () => {
     const result = sanitizeLocation(baseInput);
     expect(result.lat).not.toBeNull();
     expect(result.lng).not.toBeNull();
-    // Check 3 decimal place precision
     const latStr = result.lat!.toString();
     const lngStr = result.lng!.toString();
     const latDecimals = latStr.includes('.') ? latStr.split('.')[1].length : 0;
@@ -88,5 +88,40 @@ describe('sanitizeLocation', () => {
     const r2 = sanitizeLocation(baseInput);
     expect(r1.lat).toBe(r2.lat);
     expect(r1.lng).toBe(r2.lng);
+  });
+
+  test('Jitter changes when salt changes (different salts produce different offsets)', () => {
+    const r1 = sanitizeLocation({ ...baseInput, jitterSalt: '' });
+    const r2 = sanitizeLocation({ ...baseInput, jitterSalt: 'entirely-different-secret' });
+    expect(r1.lat !== r2.lat || r1.lng !== r2.lng).toBe(true);
+  });
+
+  test('Jitter uses 180s time buckets — same bucket gives same offset', () => {
+    const ts1 = new Date('2024-03-01T12:00:00Z');
+    const ts2 = new Date('2024-03-01T12:02:59Z');
+    const r1 = sanitizeLocation({ ...baseInput, ts: ts1 });
+    const r2 = sanitizeLocation({ ...baseInput, ts: ts2 });
+    expect(r1.lat).toBe(r2.lat);
+    expect(r1.lng).toBe(r2.lng);
+  });
+
+  test('Jitter changes when time bucket changes', () => {
+    const ts1 = new Date('2024-03-01T12:00:00Z');
+    const ts2 = new Date('2024-03-01T12:03:01Z');
+    const r1 = sanitizeLocation({ ...baseInput, ts: ts1 });
+    const r2 = sanitizeLocation({ ...baseInput, ts: ts2 });
+    expect(r1.lat !== r2.lat || r1.lng !== r2.lng).toBe(true);
+  });
+
+  test('Privacy: output never leaks jitterSalt', () => {
+    const result = sanitizeLocation(baseInput) as unknown as Record<string, unknown>;
+    expect(result).not.toHaveProperty('jitterSalt');
+    const resultStr = JSON.stringify(result);
+    expect(resultStr).not.toContain('test-salt');
+  });
+
+  test('Privacy: returned ts is the delayed public timestamp, not the raw one', () => {
+    const result = sanitizeLocation(baseInput);
+    expect(result.ts.getTime()).toBeLessThan(baseInput.ts.getTime());
   });
 });

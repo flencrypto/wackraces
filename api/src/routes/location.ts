@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { query } from '../db';
 import { requireAuth } from '../auth/middleware';
 import { PingBatchSchema } from '../schemas';
-import { publish } from '../services/redis';
+import { xaddPing } from '../services/redis';
 
 export async function locationRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post('/v1/location/pings/batch', {
@@ -20,7 +20,6 @@ export async function locationRoutes(fastify: FastifyInstance): Promise<void> {
     const carId = body.car_id;
     const now = new Date();
 
-    // Validate car membership once for the batch
     const membership = await query(
       'SELECT id FROM car_memberships WHERE user_id = $1 AND car_id = $2',
       [user.sub, carId]
@@ -34,7 +33,6 @@ export async function locationRoutes(fastify: FastifyInstance): Promise<void> {
     let rejected = 0;
 
     for (const ping of body.pings) {
-      // Normalise timestamp: clamp within ±5 minutes of server time
       const deviceTs = new Date(ping.ts);
       const diffMs = Math.abs(now.getTime() - deviceTs.getTime());
       const tsNormalized = diffMs <= 5 * 60 * 1000 ? deviceTs : now;
@@ -68,13 +66,13 @@ export async function locationRoutes(fastify: FastifyInstance): Promise<void> {
           deduped++;
         } else {
           accepted++;
-          // Publish to Redis for processor
-          await publish('location:ingest', {
+          await xaddPing({
             carId,
             lat: ping.lat,
             lng: ping.lng,
             ts: tsNormalized.toISOString(),
             accuracy_m: ping.accuracy_m,
+            speed_mps: ping.speed_mps,
           });
         }
       } catch {

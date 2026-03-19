@@ -7,6 +7,7 @@ import { publish } from '../services/redis';
 export async function locationRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post('/v1/location/pings/batch', {
     preHandler: requireAuth,
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) return reply.status(401).send({ error: 'Unauthorized' });
     const user = request.user;

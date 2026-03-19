@@ -5,7 +5,9 @@ import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../auth/j
 import { RegisterSchema, LoginSchema, RefreshSchema } from '../schemas';
 
 export async function authRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.post('/v1/auth/register', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.post('/v1/auth/register', {
+    config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const body = RegisterSchema.parse(request.body);
     const passwordHash = await bcrypt.hash(body.password, 12);
 
@@ -29,7 +31,9 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     }
   });
 
-  fastify.post('/v1/auth/login', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.post('/v1/auth/login', {
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const body = LoginSchema.parse(request.body);
     const result = await query(
       'SELECT id, email, password_hash, role FROM users WHERE email = $1',
@@ -49,7 +53,9 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     return reply.send({ accessToken, refreshToken, user: { id: user.id, email: user.email, role: user.role } });
   });
 
-  fastify.post('/v1/auth/refresh', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.post('/v1/auth/refresh', {
+    config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const body = RefreshSchema.parse(request.body);
     try {
       const payload = verifyRefreshToken(body.refreshToken);

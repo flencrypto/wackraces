@@ -19,6 +19,8 @@ export interface CheckpointResult {
 }
 
 const EARTH_RADIUS_M = 6371000;
+/** GPS accuracy baseline used for confidence scoring (typical good fix is <50m, poor is ~100m) */
+const ACCURACY_BASELINE_M = 100;
 
 export function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const toRad = (deg: number) => (deg * Math.PI) / 180;
@@ -49,7 +51,7 @@ function calculateConfidence(pingsInside: Ping[], checkpoint: Checkpoint): numbe
   // Accuracy factor (0-0.5): better accuracy = higher confidence
   const avgAccuracy =
     pingsInside.reduce((sum, p) => sum + (p.accuracy_m ?? 50), 0) / pingsInside.length;
-  const accuracyFactor = Math.max(0, (1 - avgAccuracy / 100)) * 0.5;
+  const accuracyFactor = Math.max(0, (1 - avgAccuracy / ACCURACY_BASELINE_M)) * 0.5;
 
   return Math.min(1, dwellFactor + accuracyFactor);
 }

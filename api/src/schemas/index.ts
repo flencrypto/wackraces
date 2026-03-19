@@ -65,8 +65,7 @@ export const UpdateSharingSchema = z.object({
 });
 
 export const LocationPingSchema = z.object({
-  car_id: z.string().uuid(),
-  ts_device: z.string().datetime(),
+  ts: z.string().datetime(),
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
   accuracy_m: z.number().min(0).optional(),
@@ -78,6 +77,8 @@ export const LocationPingSchema = z.object({
 });
 
 export const PingBatchSchema = z.object({
+  car_id: z.string().uuid(),
+  device_id: z.string().optional(),
   pings: z.array(LocationPingSchema).max(200),
 });
 
@@ -109,6 +110,10 @@ export const ManualCheckpointSchema = z.object({
   stage_id: z.string().uuid(),
   event_id: z.string().uuid(),
   confidence: z.number().min(0).max(1).default(1.0),
+});
+
+export const ReactionSchema = z.object({
+  type: z.enum(['LIKE', 'FIRE', 'CLAP']),
 });
 
 export const OpsCarOverrideSchema = z.object({

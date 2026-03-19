@@ -24,11 +24,12 @@ export async function carRoutes(fastify: FastifyInstance): Promise<void> {
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     const { id } = request.params as { id: string };
     const body = OpsCarOverrideSchema.parse(request.body);
+    const ALLOWED_FIELDS = new Set(['is_hidden_public', 'sharing_mode', 'public_delay_sec', 'public_blur_m']);
     const fields: string[] = [];
     const values: unknown[] = [];
     let idx = 1;
     for (const [key, val] of Object.entries(body)) {
-      if (val !== undefined) {
+      if (val !== undefined && ALLOWED_FIELDS.has(key)) {
         fields.push(`${key} = $${idx++}`);
         values.push(val);
       }

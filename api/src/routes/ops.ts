@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { query } from '../db';
 import { requireRole } from '../auth/middleware';
 import { UpdatePostSchema, CreateBroadcastSchema, ManualCheckpointSchema, OpsCarOverrideSchema } from '../schemas';
+import { auditLog } from '../services/audit';
 
 export async function opsRoutes(fastify: FastifyInstance): Promise<void> {
   const isOrg = requireRole('ORGANIZER', 'SUPERADMIN');
@@ -51,6 +52,7 @@ export async function opsRoutes(fastify: FastifyInstance): Promise<void> {
         [body.moderation_status, id]
       );
       if (!result.rows[0]) return reply.status(404).send({ error: 'Post not found' });
+      await auditLog(request.user!.sub, 'MODERATE_POST', 'post', id, { moderation_status: body.moderation_status });
       return reply.send(result.rows[0]);
     }
   );
@@ -66,6 +68,7 @@ export async function opsRoutes(fastify: FastifyInstance): Promise<void> {
          VALUES ($1, $2, $3, $4, $5) RETURNING *`,
         [id, body.title, body.body, body.audience, userId]
       );
+      await auditLog(userId, 'CREATE_BROADCAST', 'event', id, { audience: body.audience });
       return reply.status(201).send(result.rows[0]);
     }
   );
@@ -81,6 +84,8 @@ export async function opsRoutes(fastify: FastifyInstance): Promise<void> {
         [id, body.checkpoint_id, body.stage_id, body.event_id,
          body.arrived_at, body.confidence]
       );
+      await auditLog(request.user!.sub, 'MANUAL_CHECKPOINT', 'car', id,
+        { checkpoint_id: body.checkpoint_id, arrived_at: body.arrived_at });
       return reply.status(201).send(result.rows[0]);
     }
   );
@@ -90,11 +95,12 @@ export async function opsRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
       const body = OpsCarOverrideSchema.parse(request.body);
+      const ALLOWED_FIELDS = new Set(['is_hidden_public', 'sharing_mode', 'public_delay_sec', 'public_blur_m']);
       const fields: string[] = [];
       const values: unknown[] = [];
       let idx = 1;
       for (const [key, val] of Object.entries(body)) {
-        if (val !== undefined) {
+        if (val !== undefined && ALLOWED_FIELDS.has(key)) {
           fields.push(`${key} = $${idx++}`);
           values.push(val);
         }
@@ -106,6 +112,7 @@ export async function opsRoutes(fastify: FastifyInstance): Promise<void> {
         values
       );
       if (!result.rows[0]) return reply.status(404).send({ error: 'Car not found' });
+      await auditLog(request.user!.sub, 'CAR_OVERRIDE', 'car', id, body as Record<string, unknown>);
       return reply.send(result.rows[0]);
     }
   );

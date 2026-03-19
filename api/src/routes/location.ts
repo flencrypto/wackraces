@@ -16,22 +16,27 @@ export async function locationRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     const body = PingBatchSchema.parse(request.body);
+    const carId = body.car_id;
     const now = new Date();
+
+    // Validate car membership once for the batch
+    const membership = await query(
+      'SELECT id FROM car_memberships WHERE user_id = $1 AND car_id = $2',
+      [user.sub, carId]
+    );
+    if (membership.rowCount === 0 && user.role !== 'ORGANIZER' && user.role !== 'SUPERADMIN') {
+      return reply.status(403).send({ error: 'Not a member of this car' });
+    }
 
     let accepted = 0;
     let deduped = 0;
     let rejected = 0;
 
     for (const ping of body.pings) {
-      // Validate car membership
-      const membership = await query(
-        'SELECT id FROM car_memberships WHERE user_id = $1 AND car_id = $2',
-        [user.sub, ping.car_id]
-      );
-      if (membership.rowCount === 0) {
-        rejected++;
-        continue;
-      }
+      // Normalise timestamp: clamp within ±5 minutes of server time
+      const deviceTs = new Date(ping.ts);
+      const diffMs = Math.abs(now.getTime() - deviceTs.getTime());
+      const tsNormalized = diffMs <= 5 * 60 * 1000 ? deviceTs : now;
 
       try {
         const result = await query(
@@ -42,8 +47,8 @@ export async function locationRoutes(fastify: FastifyInstance): Promise<void> {
            ON CONFLICT (car_id, ts_device) DO NOTHING
            RETURNING id`,
           [
-            ping.car_id,
-            ping.ts_device,
+            carId,
+            tsNormalized.toISOString(),
             ping.lat,
             ping.lng,
             ping.accuracy_m ?? null,
@@ -52,9 +57,9 @@ export async function locationRoutes(fastify: FastifyInstance): Promise<void> {
             ping.battery_pct ?? null,
             ping.source ?? null,
             ping.ingest_id ?? null,
-            ping.ts_device,
+            deviceTs.toISOString(),
             now.toISOString(),
-            ping.ts_device,
+            tsNormalized.toISOString(),
           ]
         );
 
@@ -64,10 +69,10 @@ export async function locationRoutes(fastify: FastifyInstance): Promise<void> {
           accepted++;
           // Publish to Redis for processor
           await publish('location:ingest', {
-            carId: ping.car_id,
+            carId,
             lat: ping.lat,
             lng: ping.lng,
-            ts: ping.ts_device,
+            ts: tsNormalized.toISOString(),
             accuracy_m: ping.accuracy_m,
           });
         }

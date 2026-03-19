@@ -113,11 +113,15 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     const { id } = request.params as { id: string };
     const body = CreateEventSchema.partial().parse(request.body);
+    const ALLOWED_FIELDS = new Set([
+      'slug', 'name', 'year', 'starts_at', 'ends_at',
+      'default_public_delay_sec', 'default_public_blur_m', 'status', 'settings',
+    ]);
     const fields: string[] = [];
     const values: unknown[] = [];
     let idx = 1;
     for (const [key, val] of Object.entries(body)) {
-      if (val !== undefined) {
+      if (val !== undefined && ALLOWED_FIELDS.has(key)) {
         fields.push(`${key} = $${idx++}`);
         values.push(key === 'settings' ? JSON.stringify(val) : val);
       }

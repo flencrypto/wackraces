@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { query } from '../db';
-import { requireCarMembership } from '../auth/middleware';
-import { CreatePostSchema } from '../schemas';
+import { requireAuth, requireCarMembership } from '../auth/middleware';
+import { CreatePostSchema, ReactionSchema } from '../schemas';
 
 export async function postRoutes(fastify: FastifyInstance): Promise<void> {
   // Create post (car member)
@@ -35,13 +35,17 @@ export async function postRoutes(fastify: FastifyInstance): Promise<void> {
     let params: unknown[];
 
     if (cursor) {
+      const cursorDate = new Date(cursor);
+      if (isNaN(cursorDate.getTime())) {
+        return reply.status(400).send({ error: 'Invalid cursor' });
+      }
       sql = `SELECT p.*, u.email as author_email
              FROM posts p
              JOIN users u ON u.id = p.created_by
              WHERE p.event_id = $1 AND p.moderation_status = 'APPROVED'
              AND p.created_at < $2
              ORDER BY p.created_at DESC LIMIT $3`;
-      params = [eventId, new Date(cursor).toISOString(), limit + 1];
+      params = [eventId, cursorDate.toISOString(), limit + 1];
     } else {
       sql = `SELECT p.*, u.email as author_email
              FROM posts p
@@ -57,5 +61,48 @@ export async function postRoutes(fastify: FastifyInstance): Promise<void> {
     const nextCursor = hasMore ? posts[posts.length - 1].created_at : null;
 
     return reply.send({ posts, nextCursor, hasMore });
+  });
+
+  // Add reaction to a post
+  fastify.post('/v1/posts/:postId/reactions', {
+    preHandler: requireAuth,
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { postId } = request.params as { postId: string };
+    const body = ReactionSchema.parse(request.body);
+    const userId = request.user!.sub;
+
+    try {
+      await query(
+        `INSERT INTO reactions (post_id, user_id, type) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+        [postId, userId, body.type]
+      );
+    } catch {
+      return reply.status(400).send({ error: 'Could not add reaction' });
+    }
+    return reply.status(201).send({ message: 'Reaction added' });
+  });
+
+  // Remove reaction from a post
+  fastify.delete('/v1/posts/:postId/reactions/:type', {
+    preHandler: requireAuth,
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { postId, type } = request.params as { postId: string; type: string };
+    const userId = request.user!.sub;
+
+    await query(
+      'DELETE FROM reactions WHERE post_id = $1 AND user_id = $2 AND type = $3',
+      [postId, userId, type]
+    );
+    return reply.send({ message: 'Reaction removed' });
+  });
+
+  // Get reactions summary for a post
+  fastify.get('/v1/posts/:postId/reactions', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { postId } = request.params as { postId: string };
+    const result = await query(
+      `SELECT type, COUNT(*) as count FROM reactions WHERE post_id = $1 GROUP BY type`,
+      [postId]
+    );
+    return reply.send(result.rows);
   });
 }

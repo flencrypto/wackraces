@@ -29,7 +29,7 @@ async function start(): Promise<void> {
   await fastify.register(wsRoutes);
 
   // Error handler for Zod validation errors
-  fastify.setErrorHandler((error, _request, reply) => {
+  fastify.setErrorHandler((error: Error, _request, reply) => {
     if (error.name === 'ZodError') {
       return reply.status(400).send({ error: 'Validation error', details: error.message });
     }

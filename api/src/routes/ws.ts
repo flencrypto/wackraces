@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { WebSocket } from 'ws';
+import type { WebSocket } from 'ws';
 import { verifyAccessToken } from '../auth/jwt';
 import { createSubscriber } from '../services/redis';
 import { config } from '../config';
@@ -14,7 +14,12 @@ interface WsClient {
 const clients = new Set<WsClient>();
 
 export async function wsRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.get('/v1/ws', { websocket: true }, (socket, request) => {
+  fastify.get('/v1/ws', { websocket: true, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, (connection, request) => {
+    // @fastify/websocket v8 changed the handler parameter type. In v8 the raw WebSocket
+    // is either the connection directly (newer) or accessed via .socket (older SocketStream).
+    // This cast handles both shapes safely.
+    const ws: WebSocket = (connection as unknown as { socket: WebSocket }).socket ?? connection as unknown as WebSocket;
+
     let isOps = false;
     const authHeader = request.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -27,34 +32,49 @@ export async function wsRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     const client: WsClient = {
-      ws: socket,
+      ws,
       subscriptions: new Set(),
       isOps,
       lastSent: new Map(),
     };
     clients.add(client);
 
-    socket.on('message', (data: Buffer) => {
+    ws.on('message', (data: Buffer) => {
       try {
-        const msg = JSON.parse(data.toString());
-        if (msg.action === 'subscribe' && typeof msg.channel === 'string') {
-          const channel: string = msg.channel;
+        const msg = JSON.parse(data.toString()) as Record<string, unknown>;
+        // Support both spec format { type: "SUBSCRIBE", channels: [...] }
+        // and simple { action: "subscribe", channel: "..." }
+        const channels: string[] = [];
+        if (msg.type === 'SUBSCRIBE' && Array.isArray(msg.channels)) {
+          channels.push(...(msg.channels as string[]));
+        } else if (msg.action === 'subscribe' && typeof msg.channel === 'string') {
+          channels.push(msg.channel as string);
+        } else if (msg.type === 'UNSUBSCRIBE' && Array.isArray(msg.channels)) {
+          (msg.channels as string[]).forEach((ch) => client.subscriptions.delete(ch));
+          ws.send(JSON.stringify({ type: 'UNSUBSCRIBED', channels: msg.channels }));
+          return;
+        } else if (msg.action === 'unsubscribe' && typeof msg.channel === 'string') {
+          client.subscriptions.delete(msg.channel as string);
+          ws.send(JSON.stringify({ unsubscribed: msg.channel }));
+          return;
+        }
+
+        for (const channel of channels) {
           if (channel.startsWith('ops:') && !client.isOps) {
-            socket.send(JSON.stringify({ error: 'Unauthorized channel' }));
-            return;
+            ws.send(JSON.stringify({ error: 'Unauthorized channel', channel }));
+            continue;
           }
           client.subscriptions.add(channel);
-          socket.send(JSON.stringify({ subscribed: channel }));
-        } else if (msg.action === 'unsubscribe' && typeof msg.channel === 'string') {
-          client.subscriptions.delete(msg.channel);
-          socket.send(JSON.stringify({ unsubscribed: msg.channel }));
+        }
+        if (channels.length > 0) {
+          ws.send(JSON.stringify({ type: 'SUBSCRIBED', channels }));
         }
       } catch {
-        socket.send(JSON.stringify({ error: 'Invalid message' }));
+        ws.send(JSON.stringify({ error: 'Invalid message' }));
       }
     });
 
-    socket.on('close', () => {
+    ws.on('close', () => {
       clients.delete(client);
     });
   });
@@ -75,7 +95,7 @@ export function startRedisSubscriber(): void {
       const lastSent = client.lastSent.get(channel) ?? 0;
       if (now - lastSent < rateLimit) continue;
       client.lastSent.set(channel, now);
-      if (client.ws.readyState === WebSocket.OPEN) {
+      if (client.ws.readyState === 1 /* OPEN */) {
         client.ws.send(JSON.stringify({ channel, data: JSON.parse(message) }));
       }
     }

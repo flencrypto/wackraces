@@ -5,7 +5,7 @@ import { PingBatchSchema } from '../schemas';
 import { publish } from '../services/redis';
 
 export async function locationRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.post('/v1/location/pings:batch', {
+  fastify.post('/v1/location/pings/batch', {
     preHandler: requireAuth,
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) return reply.status(401).send({ error: 'Unauthorized' });

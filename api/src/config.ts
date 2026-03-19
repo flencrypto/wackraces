@@ -1,0 +1,18 @@
+export const config = {
+  port: Number(process.env.PORT ?? 3000),
+  host: process.env.HOST ?? '0.0.0.0',
+  jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-prod',
+  jwtRefreshSecret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh-secret',
+  jwtExpiresIn: '15m',
+  jwtRefreshExpiresIn: '30d',
+  databaseUrl: process.env.DATABASE_URL ?? 'postgresql://wackraces:wackraces@localhost:5432/wackraces',
+  redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
+  s3Bucket: process.env.S3_BUCKET ?? 'wackraces-media',
+  s3Region: process.env.S3_REGION ?? 'us-east-1',
+  s3Endpoint: process.env.S3_ENDPOINT ?? '',
+  maxPingsPerBatch: 200,
+  defaultPublicDelaySec: 600,
+  defaultPublicBlurM: 400,
+  wsRateLimitPublicMs: 3000,
+  wsRateLimitOpsMs: 1000,
+};

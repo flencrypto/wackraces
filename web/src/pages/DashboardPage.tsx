@@ -2,6 +2,9 @@ import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/auth'
 
+const ELEVATED_ROLES = ['PARTICIPANT', 'ORGANIZER', 'SUPERADMIN'] as const
+const hasElevatedRole = (role: string) => ELEVATED_ROLES.includes(role as typeof ELEVATED_ROLES[number])
+
 export default function DashboardPage() {
   const { user } = useAuthStore()
   const navigate = useNavigate()
@@ -27,7 +30,7 @@ export default function DashboardPage() {
         <p><strong>Role:</strong> <span style={{ color: '#f97316' }}>{user.role}</span></p>
       </div>
 
-      {user.role === 'PARTICIPANT' || user.role === 'ORGANIZER' || user.role === 'SUPERADMIN' ? (
+      {hasElevatedRole(user.role) ? (
         <div style={{
           background: '#1a1a2e',
           borderRadius: '0.75rem',

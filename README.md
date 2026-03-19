@@ -9,6 +9,7 @@
 ├── processor/      # Location processor worker (Redis consumer)
 ├── web/            # React + Vite PWA frontend
 ├── nginx/          # Nginx reverse-proxy config
+├── agents/         # Four cooperative agents (build · ops · debug · orchestrator)
 ├── docker-compose.yml
 └── .env.example
 ```
@@ -117,3 +118,87 @@ Public location data is automatically sanitised:
 | PARTICIPANT | Upload pings, manage own car posts/sharing |
 | ORGANIZER | Full admin: events, stages, checkpoints, moderation |
 | SUPERADMIN | Platform-level ops |
+
+---
+
+## Agent System
+
+The `agents/` directory contains four cooperative agents that run as a single
+Docker service (`agents`) alongside the rest of the stack. Together they can
+**build the application, monitor its health, and auto-debug failures**.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────┐
+│              Orchestrator               │  ← coordinates all agents
+│  HTTP status dashboard: :4000/status    │    heartbeat every 15 s
+└────────┬──────────┬────────────┬────────┘
+         │          │            │
+   COMMAND       COMMAND      COMMAND
+         │          │            │
+  ┌──────▼──┐  ┌────▼───┐  ┌────▼────┐
+  │  Build  │  │  Ops   │  │  Debug  │
+  │  Agent  │  │  Agent │  │  Agent  │
+  └─────────┘  └────────┘  └─────────┘
+```
+
+All agents communicate through a shared in-process **EventEmitter bus**.
+When Redis is reachable the bus is also bridged to **Redis Pub/Sub** so that
+agents running in separate containers can exchange messages.
+
+### The four agents
+
+| Agent | Role |
+|-------|------|
+| **Orchestrator** | Sends heartbeats, routes messages, reacts to events from the other agents, exposes a JSON status dashboard at `:4000/status` |
+| **Build** | Compiles TypeScript (`npm run build`) and runs tests (`npm test`) on demand; also watches `src/` directories and auto-rebuilds after changes |
+| **Ops** | Polls API `/health`, Redis `PING`, and PostgreSQL `SELECT 1` every 30 s; sends `ALERT` to the Orchestrator whenever a service transitions from healthy → unhealthy |
+| **Debug** | On `ALERT`, collects service logs (Docker or local files), runs pattern-matching heuristics against ~14 known failure signatures, and produces a `DebugReport` with severity-ranked issues and suggested remediations |
+
+### Cooperative workflow
+
+```
+Ops Agent detects API is DOWN
+  → sends ALERT to Orchestrator
+    → Orchestrator commands Debug Agent: ANALYZE_LOGS api
+      → Debug Agent collects logs, detects "Cannot find module" (MODULE_NOT_FOUND)
+        → sends DEBUG_REPORT to Orchestrator
+          → Orchestrator sees build-related issue
+            → commands Build Agent: BUILD api
+              → Build Agent rebuilds, sends BUILD_RESULT (success=true)
+                → Orchestrator commands Ops Agent: CHECK_HEALTH
+                  → Ops Agent verifies recovery
+```
+
+### Running agents locally
+
+```bash
+cd agents
+npm install
+npm run dev    # ts-node, auto-restarts on changes
+# or
+npm run build && npm start
+```
+
+The agents will read the shared `.env` from the repository root.
+
+### Running with Docker
+
+`docker compose up` automatically starts the `agents` service. The status
+dashboard is available at **http://localhost:4000/status**.
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AGENTS_API_BASE_URL` | `http://localhost:3000` | API URL used for health checks |
+| `AGENTS_USE_DOCKER` | `false` | Set to `true` to collect logs via `docker compose logs` |
+| `AGENTS_STATUS_PORT` | `4000` | Port for the Orchestrator status dashboard |
+| `AGENTS_OPS_INTERVAL_MS` | `30000` | Health check polling interval (ms) |
+| `AGENTS_HEARTBEAT_INTERVAL_MS` | `15000` | Heartbeat interval (ms) |
+| `AGENTS_HEARTBEAT_TIMEOUT_SEC` | `60` | Seconds before an agent is considered dead |
+
+All Redis / PostgreSQL connection variables (`REDIS_HOST`, `REDIS_PORT`,
+`DATABASE_URL`, etc.) are shared with the other services via `.env`.
+

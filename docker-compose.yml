@@ -69,5 +69,23 @@ services:
       web:
         condition: service_healthy
     restart: unless-stopped
+  agents:
+    build: ./agents
+    env_file: .env
+    environment:
+      AGENTS_API_BASE_URL: "http://api:3000"
+      AGENTS_USE_DOCKER: "false"
+      AGENTS_STATUS_PORT: "4000"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+    ports: ["4000:4000"]
+    depends_on:
+      api:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
 volumes:
   pgdata:

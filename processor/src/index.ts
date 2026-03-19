@@ -9,9 +9,27 @@ const JITTER_CHANGE_INTERVAL_MS = 3 * 60 * 1000;
 /** Deduplication window for checkpoint arrivals (in minutes) */
 const CHECKPOINT_DEDUP_WINDOW_MINUTES = 5;
 
-const pool = new Pool({ connectionString: DATABASE_URL });
-const subscriber = new Redis(REDIS_URL);
-const publisher = new Redis(REDIS_URL);
+const pool = new Pool({
+  connectionString: DATABASE_URL,
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+});
+
+pool.on('error', (err) => {
+  console.error('Unexpected DB pool error', err);
+});
+
+const redisOptions = {
+  retryStrategy: (times: number) => Math.min(times * 200, 5000),
+  maxRetriesPerRequest: null,
+};
+
+const subscriber = new Redis(REDIS_URL, redisOptions);
+const publisher = new Redis(REDIS_URL, redisOptions);
+
+subscriber.on('error', (err) => console.error('Subscriber Redis error', err));
+publisher.on('error', (err) => console.error('Publisher Redis error', err));
 
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const toRad = (deg: number) => (deg * Math.PI) / 180;
@@ -227,6 +245,11 @@ async function main(): Promise<void> {
 
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
+
+  process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled promise rejection in processor', reason);
+    process.exit(1);
+  });
 }
 
 main().catch((err) => {

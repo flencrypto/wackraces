@@ -83,7 +83,9 @@ CREATE TABLE IF NOT EXISTS location_pings_raw (
   ingest_id TEXT,
   ts_device TIMESTAMPTZ,
   ts_server_received TIMESTAMPTZ,
-  ts_normalized TIMESTAMPTZ
+  ts_normalized TIMESTAMPTZ,
+  is_valid BOOLEAN NOT NULL DEFAULT TRUE,
+  reject_reason TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS location_pings_raw_dedup ON location_pings_raw(car_id, ts_device);
@@ -176,3 +178,33 @@ CREATE TABLE IF NOT EXISTS audit_log (
   details JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Enforces uniqueness of checkpoint completions per (car, checkpoint, stage)
+CREATE TABLE IF NOT EXISTS stage_runs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  car_id UUID NOT NULL REFERENCES cars(id) ON DELETE CASCADE,
+  stage_id UUID NOT NULL REFERENCES stages(id) ON DELETE CASCADE,
+  checkpoint_id UUID NOT NULL REFERENCES checkpoints(id) ON DELETE CASCADE,
+  arrived_at TIMESTAMPTZ NOT NULL,
+  confidence REAL NOT NULL DEFAULT 1.0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(car_id, checkpoint_id, stage_id)
+);
+
+CREATE INDEX IF NOT EXISTS stage_runs_car_stage ON stage_runs(car_id, stage_id);
+
+-- Leaderboard: summary of stage completion times per car
+CREATE TABLE IF NOT EXISTS leaderboard_entries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  stage_id UUID NOT NULL REFERENCES stages(id) ON DELETE CASCADE,
+  car_id UUID NOT NULL REFERENCES cars(id) ON DELETE CASCADE,
+  total_time_sec INT,
+  checkpoints_completed INT NOT NULL DEFAULT 0,
+  last_checkpoint_at TIMESTAMPTZ,
+  rank INT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(event_id, stage_id, car_id)
+);
+
+CREATE INDEX IF NOT EXISTS leaderboard_event_stage ON leaderboard_entries(event_id, stage_id, rank);

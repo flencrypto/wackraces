@@ -3,6 +3,7 @@ export interface Ping {
   lng: number;
   ts: Date;
   accuracy_m?: number;
+  speed_mps?: number;
 }
 
 export interface Checkpoint {
@@ -19,8 +20,11 @@ export interface CheckpointResult {
 }
 
 const EARTH_RADIUS_M = 6371000;
-/** GPS accuracy baseline used for confidence scoring (typical good fix is <50m, poor is ~100m) */
 const ACCURACY_BASELINE_M = 100;
+/** Pings with accuracy worse than this are treated as low-confidence */
+const MAX_ACCURACY_FOR_GATE_M = 150;
+/** Vehicles faster than this are unlikely to be legitimately crossing a checkpoint zone */
+const CHECKPOINT_MAX_SPEED_MPS = 30;
 
 export function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const toRad = (deg: number) => (deg * Math.PI) / 180;
@@ -39,16 +43,26 @@ export function isPingInsideCheckpoint(ping: Ping, checkpoint: Checkpoint): bool
   return dist <= effectiveRadius;
 }
 
-function calculateConfidence(pingsInside: Ping[], checkpoint: Checkpoint): number {
+/** Accuracy gate: returns true when the ping passes (should be used). */
+export function passesAccuracyGate(ping: Ping): boolean {
+  if (ping.accuracy_m === undefined) return true;
+  return ping.accuracy_m <= MAX_ACCURACY_FOR_GATE_M;
+}
+
+/** Speed gate: returns true when the ping passes (should be used). */
+export function passesSpeedGate(ping: Ping): boolean {
+  if (ping.speed_mps === undefined) return true;
+  return ping.speed_mps <= CHECKPOINT_MAX_SPEED_MPS;
+}
+
+function calculateConfidence(pingsInside: Ping[], _checkpoint: Checkpoint): number {
   if (pingsInside.length === 0) return 0;
 
-  // Dwell time factor (0-0.5)
   const firstTs = pingsInside[0].ts.getTime();
   const lastTs = pingsInside[pingsInside.length - 1].ts.getTime();
   const dwellMs = lastTs - firstTs;
   const dwellFactor = Math.min(dwellMs / 60000, 1) * 0.5;
 
-  // Accuracy factor (0-0.5): better accuracy = higher confidence
   const avgAccuracy =
     pingsInside.reduce((sum, p) => sum + (p.accuracy_m ?? 50), 0) / pingsInside.length;
   const accuracyFactor = Math.max(0, (1 - avgAccuracy / ACCURACY_BASELINE_M)) * 0.5;
@@ -67,12 +81,18 @@ export function detectCheckpointArrival(
   let pingsInside: Ping[] = [];
 
   for (const ping of pings) {
+    if (!passesAccuracyGate(ping) || !passesSpeedGate(ping)) {
+      consecutiveInside = 0;
+      firstInsideTs = null;
+      pingsInside = [];
+      continue;
+    }
+
     if (isPingInsideCheckpoint(ping, checkpoint)) {
       consecutiveInside++;
       if (!firstInsideTs) firstInsideTs = ping.ts;
       pingsInside.push(ping);
 
-      // Condition 1: 2 consecutive pings inside
       if (consecutiveInside >= 2) {
         const confidence = calculateConfidence(pingsInside, checkpoint);
         return {
@@ -82,7 +102,6 @@ export function detectCheckpointArrival(
         };
       }
 
-      // Condition 2: dwell time >= 20s
       const dwellMs = ping.ts.getTime() - firstInsideTs.getTime();
       if (dwellMs >= 20000) {
         const confidence = calculateConfidence(pingsInside, checkpoint);

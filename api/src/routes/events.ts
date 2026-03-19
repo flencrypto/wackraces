@@ -69,6 +69,7 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
           blurM,
         },
         carId: car.id,
+        jitterSalt: config.jitterSalt,
       });
 
       return {
@@ -90,6 +91,46 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
     });
 
     return reply.send(sanitized);
+  });
+
+  // Public: leaderboard for an event
+  fastify.get('/v1/events/:eventId/leaderboard', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { eventId } = request.params as { eventId: string };
+    const { stage_id } = request.query as { stage_id?: string };
+
+    const result = await query(
+      `SELECT
+         c.id as car_id,
+         c.car_number,
+         c.team_name,
+         c.display_name,
+         c.avatar_url,
+         COUNT(ce.id)::int as checkpoints_completed,
+         MAX(ce.arrived_at) as last_checkpoint_at,
+         EXTRACT(EPOCH FROM (MAX(ce.arrived_at) - MIN(ce.arrived_at)))::int as total_time_sec
+       FROM cars c
+       LEFT JOIN checkpoint_events ce ON ce.car_id = c.id
+         AND ce.event_id = $1
+         ${stage_id ? 'AND ce.stage_id = $2' : ''}
+       WHERE c.event_id = $1 AND c.is_hidden_public = false
+       GROUP BY c.id, c.car_number, c.team_name, c.display_name, c.avatar_url
+       ORDER BY checkpoints_completed DESC, last_checkpoint_at ASC NULLS LAST`,
+      stage_id ? [eventId, stage_id] : [eventId]
+    );
+
+    const entries = result.rows.map((row, index) => ({
+      rank: index + 1,
+      car_id: row.car_id,
+      car_number: row.car_number,
+      team_name: row.team_name,
+      display_name: row.display_name,
+      avatar_url: row.avatar_url,
+      checkpoints_completed: row.checkpoints_completed,
+      last_checkpoint_at: row.last_checkpoint_at,
+      total_time_sec: row.total_time_sec,
+    }));
+
+    return reply.send({ entries });
   });
 
   // Organizer: create event
